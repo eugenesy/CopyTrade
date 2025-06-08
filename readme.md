@@ -76,6 +76,7 @@ The XGBoost_Baseline.ipynb includes the training and evaluation of XGboost model
 ## Dataset
 The dataset for csv version in provide in the URL due to github limitation
 https://drive.google.com/drive/folders/12xj-P2yK5kkX5KV4oDQGUCKnxjfgongF?usp=sharing
-## Backtrade model is provided in Portfolio_Allocation(2020_2025).ipynb
+## Backtrade model 
+The  Backtrade model is provided in Portfolio_Allocation(2020_2025).ipynb
 
 
