@@ -1,168 +1,75 @@
-# Walk-Forward Copy-Trading Prediction
+This repository provides end-to-end tools to build an efficient per-day copy-trading dataset and train a Transformer-based prediction model using a 1-month return label. Follow the sections below to install dependencies, prepare data, and run training.
 
-## What This Does
+## Repository Structure  
+- **data/**  
+  - `transactions_with_embeddings_enhanced.csv` – Raw transactions enriched with sentence embeddings  
+  - `all_tickers_historical_data.pkl` – Pickled historical stock data  
+- **scripts/**  
+  - `build_efficient_per_day_dataset_enhanced.py` – Build sparse per-day CP activity dataset  
+  - `efficient_per_day_data_loader.py` – PyTorch Dataset, DataLoader and walk-forward split utilities  
+  - `model_components.py` – Core model building blocks (CP embedding, attention, transformer, fusion, head)  
+  - `per_day_copy_trading_model.py` – Full model definition with ablation modes  
+  - `train_per_day.py` – Training, validation, testing and summary generation script  
+- **outputs/** (generated)  
+  - `walk_forward_results/` – Model metrics CSVs and prediction files  
+  - `efficient_per_day_trading_dataset_enhanced.pkl` – Final dataset pickle  
 
-This system implements **walk-forward validation** for copy-trading prediction. It trains models on historical congressional trading data and tests on future periods, generating predictions with probabilities for each transaction.
+## Prerequisites  
+- Python 3.8+  
+- Required packages (install via pip):  
+  ```bash
+  pip install pandas numpy torch sklearn tqdm python-dateutil matplotlib seaborn
+  ```
 
-**Walk-Forward Schedule:**
-- Test 2020: Train on 2014-2019
-- Test 2021: Train on 2015-2020
-- Test 2022: Train on 2016-2021
-- Test 2023: Train on 2017-2022
-- Test 2024: Train on 2018-2023
-- Test 2025: Train on 2019-2024
+## Data Preparation  
+1. Place your raw CSV and stock history pickle under `data/`.  
+2. Run the dataset builder to produce `efficient_per_day_trading_dataset_enhanced.pkl`:  
+   ```bash
+   python scripts/build_efficient_per_day_dataset_enhanced.py \
+     --transactions_csv data/transactions_with_embeddings_enhanced.csv \
+     --stock_history_pkl data/all_tickers_historical_data.pkl \
+     --output_pkl outputs/efficient_per_day_trading_dataset_enhanced.pkl
+   ```
+   This script:  
+   - Extracts the last 90 trading days of stock features (pads if needed)  
+   - Builds a sparse mapping of CP trades per day  
+   - Saves periodic checkpoints for fault tolerance  
 
-## Required Files
+## Training & Evaluation  
+All training, validation and testing use a walk-forward scheme starting in 2020 with a rolling 6-year training window. Labels are 1-month future returns only.
 
-**You need these files in your folder:**
-- `efficient_per_day_trading_dataset.pkl` - **Main dataset file (required!)**
-- `build_efficient_per_day_dataset.py` - Builds the dataset
-- `efficient_per_day_data_loader.py` - Data loading and walk-forward splits
-- `model_components.py` - Neural network components
-- `per_day_copy_trading_model.py` - Main model architecture
-- `train_per_day.py` - Training script (this is what you run)
+1. **Run training**  
+   ```bash
+   python scripts/train_per_day.py \
+     --dataset_path outputs/efficient_per_day_trading_dataset_enhanced.pkl \
+     --label_period 1M \
+     --batch_size 32 \
+     --learning_rate 0.001 \
+     --epochs 30 \
+     --output_dir outputs/walk_forward_results \
+     --ablation_mode full
+   ```
+   Key arguments:  
+   - `--label_period 1M` (fixed)  
+   - `--ablation_mode` choices:  
+     - `full` (stock + target CP)  
+     - `target_cp_only` (CP features only)  
+     - `historical_only` (historical data only)  
 
-## File Descriptions
+2. **Monitor progress**  
+   - Training/validation loss and AUC printed per epoch  
+   - Early stopping after 7 epochs of no improvement  
 
-### **`build_efficient_per_day_dataset.py`**
-Builds the main dataset from raw CSV files. Combines transaction data with stock history and creates the efficient sparse format.
+3. **Outputs generated**  
+   - `walk_forward_summary_1M.csv` – Year-by-year metrics (AUC, F1, accuracy)  
+   - `predictions__1M.csv` – Transaction-level true label, probability and predicted label  
 
-### **`efficient_per_day_data_loader.py`**
-- Creates walk-forward temporal splits based on filing dates
-- Loads data with proper train/val/test splits for each time period
-- Handles data preprocessing and batching
+## Notes & Tips  
+- Adjust hyperparameters (e.g. transformer layers, fusion dim) via CLI flags in `train_per_day.py`.  
+- To reproduce results, fix random seeds in your Python environment.  
+- For large datasets, ensure enough disk space for checkpoints in `outputs/`.  
 
-### **`model_components.py`**
-Contains all neural network building blocks:
-- CP embedding layers
-- Transformer encoder
-- Fusion modules
-- Prediction head
-
-### **`per_day_copy_trading_model.py`**
-Main model architecture that combines all components into the final prediction model.
-
-### **`train_per_day.py`**
-**Main training script** - runs the complete walk-forward validation:
-- Trains separate models for each test year
-- Generates prediction CSVs with probabilities
-- Creates performance summary across all years
-
-## How to Run
-
-### **1. Install Dependencies**
-```bash
-conda env create -f environment.yaml
-conda activate copy-trading
-```
-
-### **2. Make Sure You Have the Dataset**
-**Important:** You need `efficient_per_day_trading_dataset.pkl` in your folder. If you don't have it:
-```bash
-python build_efficient_per_day_dataset.py
-```
-
-### **3. Run Walk-Forward Validation**
-
-**Basic usage:**
-```bash
-python train_per_day.py --dataset_path efficient_per_day_trading_dataset.pkl --label_period 1M
-```
-
-**For different time horizons:**
-```bash
-# 1-month predictions
-python train_per_day.py --label_period 1M --output_dir results_1M
-
-# 3-month predictions
-python train_per_day.py --label_period 3M --output_dir results_3M
-
-# 6-month predictions
-python train_per_day.py --label_period 6M --output_dir results_6M
-```
-
-## Output Files
-
-**Prediction files for each test year:**
-- `predictions_2020_1M.csv` - Contains transaction_id, true_label, predicted_probability, predicted_label
-- `predictions_2021_1M.csv`
-- `predictions_2022_1M.csv`
-- etc.
-
-**Summary file:**
-- `walk_forward_summary_1M.csv` - Performance metrics across all test years
-
-## Requirements Files
-
-### **`environment.yaml`**
-```yaml
-name: copy-trading
-channels:
-  - pytorch
-  - conda-forge
-  - defaults
-dependencies:
-  - python=3.9
-  - pytorch=1.12.0
-  - torchvision=0.13.0
-  - cudatoolkit=11.6
-  - numpy=1.21.0
-  - pandas=1.4.3
-  - scikit-learn=1.1.1
-  - matplotlib=3.5.2
-  - seaborn=0.11.2
-  - tqdm=4.64.0
-  - python-dateutil=2.8.2
-  - pip=22.1.2
-  - pip:
-    - transformers==4.21.0
-    - tensorboard==2.9.1
-```
-
-### **`requirements.txt`**
-```txt
-torch==1.12.0
-torchvision==0.13.0
-numpy==1.21.0
-pandas==1.4.3
-scikit-learn==1.1.1
-matplotlib==3.5.2
-seaborn==0.11.2
-tqdm==4.64.0
-python-dateutil==2.8.2
-transformers==4.21.0
-tensorboard==2.9.1
-```
-
-## Command Line Options
-
-**Key parameters:**
-- `--label_period`: 1M, 3M, or 6M (prediction horizon)
-- `--batch_size`: Batch size (default: 32)
-- `--epochs`: Max epochs per model (default: 30)
-- `--learning_rate`: Learning rate (default: 0.001)
-- `--output_dir`: Where to save results
-
-**Example with custom settings:**
-```bash
-python train_per_day.py \
-    --label_period 1M \
-    --batch_size 64 \
-    --epochs 50 \
-    --learning_rate 0.0005 \
-    --output_dir custom_results
-```
-
-## Quick Checklist
-
-Before running, make sure you have:
-- [ ] `efficient_per_day_trading_dataset.pkl` in your folder
-- [ ] All Python files in the same directory
-- [ ] Dependencies installed
-- [ ] Enough disk space for results
-
-That's it! The system will automatically create temporal splits, train models for each year, and generate prediction files with probabilities.
-
+This setup enables rapid experimentation on 1-month return prediction using per-day market and copy-trading signals.
 
 ## XGBoost
 The XGBoost_Baseline.ipynb includes the training and evaluation of XGboost model.
